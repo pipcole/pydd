@@ -8,24 +8,7 @@ import jax
 import jax.numpy as jnp
 #import numpy as np
 
-# tryout_211 = np.loadtxt('211_1.txt', unpack=True)
-#
-# np.savez_compressed('try211.npz', array1=tryout_211[0], array2=tryout_211[1], array3=tryout_211[2], array4=tryout_211[3], array5=tryout_211[4], array6=tryout_211[5])
-b_211 = jnp.loadtxt('/Users/Pippa/Documents/Amsterdam/Spikes/dec-pydd-main-2/src/pydd/211_1.txt')
-
-#tga = np.loadtxt('/Users/Pippa/Documents/Amsterdam/Spikes/Grav_atom/t_s_ga.txt')
-#fga = np.loadtxt('/Users/Pippa/Documents/Amsterdam/Spikes/Grav_atom/f_s_ga.txt')
-#Phiga = np.loadtxt('/Users/Pippa/Documents/Amsterdam/Spikes/Grav_atom/Phi_s_ga.txt')
-#deriv = np.loadtxt('/Users/Pippa/Documents/Amsterdam/Spikes/Grav_atom/deriv_ga.txt')
 b_211 = jnp.load('/Users/Pippa/Documents/Amsterdam/Spikes/dec-pydd-main-2/src/pydd/try211.npz')
-
-#def t_interp_ga(MBH):
-#    return interp1d(fga/MBH, -tga*(60*60*24*365.25)*MBH, fill_value = 'extrapolate')
-#def Phi_interp_ga(MBH):
-#    return interp1d(fga/MBH, Phiga, fill_value = 'extrapolate')
-#deriv = (np.gradient(Phi, f))**-1*f*4*jnp.pi**2
-#def Phi_dd_interp_ga(MBH):
-#    return interp1d(fga/MBH, deriv/MBH**5, fill_value = 'extrapolate')
 
 def OmegaKepler(rs, R_star): #Kepler's third law, for the effective two-body problem insert rs*(1+q)
     return jnp.sqrt(rs/(2*R_star**3))
@@ -57,7 +40,7 @@ def dtOverdr_extra(q, dqOverdt, rs, r, m, Omega0, epsilon, alpha, ion_energy): #
     return q*rs/(4*r**2) / ( - dEGWdt - dEaccretiondt - dEionizdt)
 
 
-#F#For a |211> cloud, we import the following tabulated data, can be rescaled for arbritary alpha, q, M_cloud
+#For a |211> cloud, we import the following tabulated data, can be rescaled for arbritary alpha, q, M_cloud
 # R_211, ion_r_co_211, ion_E_co_211, PionOverPGW_co_211, ion_r_count_211, ion_E_count_211, PionOverPGW_count_211 = jnp.loadtxt('211.txt', ujnpack=True)
 #R_211, ion_r_co_211, ion_E_co_211, PionOverPGW_co_211, ion_r_count_211, ion_E_count_211, PionOverPGW_count_211 = jnp.loadtxt('/Users/Pippa/Documents/Amsterdam/Spikes/dec-pydd-main-2/src/pydd/211_1.txt',unpack=True)#b_211['array1'], b_211['array2'], b_211['array3'], b_211['array4'], b_211['array5'], b_211['array6'], b_211['array7']
 # R_322, ion_r_co_322, ion_E_co_322, PionOverPGW_co_322, ion_r_count_322, ion_E_count_322, PionOverPGW_count_322 = jnp.loadtxt('322.txt', ujnpack=True)
@@ -70,15 +53,13 @@ R_211 /= 2 #Divide by 2 to work in units of rs = 1
 # R_311 /= 2
 # R_320 /= 2
 # R_210 /= 2
-#print(ion_r_co_211)
-#Some definitions
-#MBH = 10**4 # in solar Masses
 
-#Set up a function that calculates the relevant quantities
+#Some definitions
 #n, l, m are the principal quantum numbers, so in this case 2, 1, 1
 #We work in the limit of small q, so q equal or smaller than 1e-3
 #We are only dealing with equatorial orbits, chi = 0 means co-rotating, chi = jnp.pi means counter-rotating
-def body_fun(val):
+
+def body_fun(val): #for jax while loop
     return val-1
 
 def gatom_interp(MBH, n, l, m, alpha, q_init, epsilon_init, chi, R, rate_co, energy_co, rate_counter, energy_counter):
