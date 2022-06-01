@@ -8,13 +8,6 @@ from scipy.integrate import simps
 import numpy as np
 from numpy import append, gradient, pi, array, linspace, sqrt, exp, loadtxt
 
-# tryout_211 = np.loadtxt('211_1.txt', unpack=True)
-#
-# np.savez_compressed('try211.npz', array1=tryout_211[0], array2=tryout_211[1], array3=tryout_211[2], array4=tryout_211[3], array5=tryout_211[4], array6=tryout_211[5])
-#b_211 = jnp.loadtxt('/Users/Pippa/Documents/Amsterdam/Spikes/dec-pydd-main-2/src/pydd/211_1.txt')
-
-#b_211 = jnp.load('try211.npz')
-
 def OmegaKepler(rs, R_star): #Kepler's third law, for the effective two-body problem insert rs*(1+q)
     return sqrt(rs/(2*R_star**3))
 
