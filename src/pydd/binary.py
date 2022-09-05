@@ -5,12 +5,16 @@ from scipy.optimize import minimize_scalar
 import jax
 from jax import jit
 import jax.numpy as jnp
-#import numpy as np
+import numpy as np
 from jax.scipy.special import betainc
 from jaxinterp2d import interp2d
 from scipy.special import hyp2f1
-from pydd.gatom import gatom_interp, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211#, t_interp_ga, Phi_interp_ga, Phi_dd_interp_ga
+from pydd.gatom import gatom_interp, R_211, ion_r_co_211, ion_E_co_211
 
+from CDMsur_Backbone import *
+from utils_surr import *
+from dill import load
+model = load(open("cdm_surr_new_data_1000.pkl", "rb")) # load trained surrogate model
 
 """
 Functions for computing waveforms and various parameters for different types of
@@ -36,11 +40,11 @@ class VacuumBinary(NamedTuple):
     GR-in-vacuum binary.
     """
 
-    M_chirp: jnp.ndarray
-    Phi_c: jnp.ndarray
-    tT_c: jnp.ndarray
-    dL: jnp.ndarray
-    f_c: jnp.ndarray
+    M_chirp: np.ndarray
+    Phi_c: np.ndarray
+    tT_c: np.ndarray
+    dL: np.ndarray
+    f_c: np.ndarray
 
 
 class StaticDress(NamedTuple):
@@ -48,13 +52,13 @@ class StaticDress(NamedTuple):
     A dark dress with a non-evolving DM halo.
     """
 
-    gamma_s: jnp.ndarray
-    c_f: jnp.ndarray
-    M_chirp: jnp.ndarray
-    Phi_c: jnp.ndarray
-    tT_c: jnp.ndarray
-    dL: jnp.ndarray
-    f_c: jnp.ndarray
+    gamma_s: np.ndarray
+    c_f: np.ndarray
+    M_chirp: np.ndarray
+    Phi_c: np.ndarray
+    tT_c: np.ndarray
+    dL: np.ndarray
+    f_c: np.ndarray
 
 
 class DynamicDress(NamedTuple):
@@ -62,88 +66,104 @@ class DynamicDress(NamedTuple):
     A dark dress with an evolving DM halo.
     """
 
-    gamma_s: jnp.ndarray
-    rho_6: jnp.ndarray
-    M_chirp: jnp.ndarray
-    q: jnp.ndarray
-    Phi_c: jnp.ndarray
-    tT_c: jnp.ndarray
-    dL: jnp.ndarray
-    f_c: jnp.ndarray
+    gamma_s: np.ndarray
+    rho_6: np.ndarray
+    M_chirp: np.ndarray
+    q: np.ndarray
+    Phi_c: np.ndarray
+    tT_c: np.ndarray
+    dL: np.ndarray
+    f_c: np.ndarray
 
 class AccretionDisk(NamedTuple):
     """
     Analytic approximation to thin accretion disk.
 
     """
-    Sigma0: jnp.ndarray
-    Mach: jnp.ndarray
-    M_chirp: jnp.ndarray
-    q: jnp.ndarray
-    Phi_c: jnp.ndarray
-    tT_c: jnp.ndarray
-    dL: jnp.ndarray
-    f_c: jnp.ndarray
+    SigM2: np.ndarray
+    inout: np.ndarray
+    M_chirp: np.ndarray
+    q: np.ndarray
+    Phi_c: np.ndarray
+    tT_c: np.ndarray
+    dL: np.ndarray
+    f_c: np.ndarray
 
 class GravAtom(NamedTuple):
     """
     Numerical interpolation for GravAtom system with n=2, l=1, m=1 (various options editable in function)
 
     """
-    alpha: jnp.ndarray
-    epsilon_init: jnp.ndarray
-    M_chirp: jnp.ndarray
-    q: jnp.ndarray
-    Phi_c: jnp.ndarray
-    tT_c: jnp.ndarray
-    dL: jnp.ndarray
-    f_c: jnp.ndarray
+
+    alpha: np.ndarray
+    epsilon_init: np.ndarray
+    M_chirp: np.ndarray
+    q: np.ndarray
+    Phi_c: np.ndarray
+    tT_c: np.ndarray
+    dL: np.ndarray
+    f_c: np.ndarray
+
+class SurrogateDD(NamedTuple):
+
+    """
+    Surrogate model for dark dress with an evolving DM halo.
+    """
+
+    gamma_s: np.ndarray
+    rho_6: np.ndarray
+    M_chirp: np.ndarray
+    q: np.ndarray
+    Phi_c: np.ndarray
+    tT_c: np.ndarray
+    dL: np.ndarray
+    f_c: np.ndarray
 
 
-Binary = Union[VacuumBinary, StaticDress, DynamicDress, AccretionDisk, GravAtom]
+Binary = Union[VacuumBinary, StaticDress, DynamicDress, AccretionDisk, GravAtom, SurrogateDD]
 
 
-@jit
+#@jit
 def get_M_chirp(m_1, m_2):
     return (m_1 * m_2) ** (3 / 5) / (m_1 + m_2) ** (1 / 5)
 
 
-@jit
+#@jit
 def get_m_1(M_chirp, q):
     return (1 + q) ** (1 / 5) / q ** (3 / 5) * M_chirp
 
 
-@jit
+#@jit
 def get_m_2(M_chirp, q):
     return (1 + q) ** (1 / 5) * q ** (2 / 5) * M_chirp
 
 
-@jit
+#@jit
 def get_r_isco(m_1):
     return 6 * G * m_1 / C ** 2
 
 
-@jit
+#@jit
 def get_f_isco(m_1):
-    return jnp.sqrt(G * m_1 / get_r_isco(m_1) ** 3) / pi
+    return np.sqrt(G * m_1 / get_r_isco(m_1) ** 3) / pi
 
 
-@jit
+#@jit
 def get_r_s(m_1, rho_s, gamma_s):
     return ((3 - gamma_s) * 0.2 ** (3 - gamma_s) * m_1 / (2 * pi * rho_s)) ** (1 / 3)
 
 
-@jit
+#@jit
 def get_rho_s(rho_6, m_1, gamma_s):
     a = 0.2
     r_6 = 1e-6 * PC
-    m_tilde = ((3 - gamma_s) * a ** (3 - gamma_s)) * m_1 / (2 * jnp.pi)
+    m_tilde = ((3 - gamma_s) * a ** (3 - gamma_s)) * m_1 / (2 * np.pi)
     return (rho_6 * r_6 ** gamma_s / (m_tilde ** (gamma_s / 3))) ** (
         1 / (1 - gamma_s / 3)
     )
 
 
-@jit
+#@jit
 def get_rho_6(rho_s, m_1, gamma_s):
     a = 0.2
     r_s = ((3 - gamma_s) * a ** (3 - gamma_s) * m_1 / (2 * pi * rho_s)) ** (1 / 3)
@@ -151,52 +171,52 @@ def get_rho_6(rho_s, m_1, gamma_s):
     return rho_s * (r_6 / r_s) ** -gamma_s
 
 
-@jit
+#@jit
 def get_xi(gamma_s):
     # Could use that I_x(a, b) = 1 - I_{1-x}(b, a)
     return 1 - betainc(gamma_s - 1 / 2, 3 / 2, 1 / 2)
 
 
-@jit
+#@jit
 def get_c_f(m_1, m_2, rho_s, gamma_s):
-    Lambda = jnp.sqrt(m_1 / m_2)
+    Lambda = np.sqrt(m_1 / m_2)
     M = m_1 + m_2
     c_gw = 64 * G ** 3 * M * m_1 * m_2 / (5 * C ** 5)
     c_df = (
         8
         * pi
-        * jnp.sqrt(G)
+        * np.sqrt(G)
         * (m_2 / m_1)
-        * jnp.log(Lambda)
-        * (rho_s * get_r_s(m_1, rho_s, gamma_s) ** gamma_s / jnp.sqrt(M))
+        * np.log(Lambda)
+        * (rho_s * get_r_s(m_1, rho_s, gamma_s) ** gamma_s / np.sqrt(M))
         * get_xi(gamma_s)
     )
     return c_df / c_gw * (G * M / pi ** 2) ** ((11 - 2 * gamma_s) / 6)
 
 
-@jit
+#@jit
 def get_f_eq(gamma_s, c_f):
     return c_f ** (3 / (11 - 2 * gamma_s))
 
 
-@jit
+#@jit
 def get_a_v(M_chirp):
     return 1 / 16 * (C ** 3 / (pi * G * M_chirp)) ** (5 / 3)
 
 
-@jit
+#@jit
 def PhiT(f, params: Binary):
     return 2 * pi * f * t_to_c(f, params) - Phi_to_c(f, params)
 
 
-@jit
+#@jit
 def Psi(f, params: Binary):
     return 2 * pi * f * params.tT_c - params.Phi_c - pi / 4 - PhiT(f, params)
 
 
-@jit
+#@jit
 def h_0(f, params: Binary):
-    return jnp.where(
+    return np.where(
         f <= params.f_c,
         1
         / 2
@@ -205,30 +225,38 @@ def h_0(f, params: Binary):
         * (G * params.M_chirp) ** (5 / 3)
         * f ** (2 / 3)
         / C ** 4
-        * jnp.sqrt(2 * pi / abs(d2Phi_dt2(f, params))),
+        * np.sqrt(2 * pi / abs(d2Phi_dt2(f, params))),
         0.0,
     )
 
 
-@jit
+#@jit
 def amp(f, params: Binary):
     """
     Amplitude averaged over inclination angle.
     """
-    return jnp.sqrt(4 / 5) * h_0(f, params) / params.dL
+    return np.sqrt(4 / 5) * h_0(f, params) / params.dL
 
 
-@jit
+#@jit
 def Phi_to_c(f, params: Binary):
-    return _Phi_to_c_indef(f, params) - _Phi_to_c_indef(params.f_c, params)
+    if isinstance(params, GravAtom):
+        pga = master_call(f, params)[0]
+        return pga(f) - pga(params.f_c)
+    else:
+        return _Phi_to_c_indef(f, params) - _Phi_to_c_indef(params.f_c, params)
 
 
-@jit
+#@jit
 def t_to_c(f, params: Binary):
-    return _t_to_c_indef(f, params) - _t_to_c_indef(params.f_c, params)
+    if isinstance(params, GravAtom):
+        tga = master_call(f, params)[1]
+        return tga(f) - tga(params.f_c)
+    else:
+        return _t_to_c_indef(f, params) - _t_to_c_indef(params.f_c, params)
 
 
-@jit
+#@jit
 def _Phi_to_c_indef(f, params: Binary):
     if isinstance(params, VacuumBinary):
         return _Phi_to_c_indef_v(f, params)
@@ -239,12 +267,14 @@ def _Phi_to_c_indef(f, params: Binary):
     elif isinstance(params, AccretionDisk):
         return _Phi_to_c_indef_a(f, params)
     elif isinstance(params, GravAtom):
-        return _Phi_to_c_indef_g(f, params)
+        return master_call(f, params)[0]
+    elif isinstance(params, SurrogateDD):
+        return _Phi_to_c_indef_sur(f, params)
     else:
         raise ValueError("unrecognized type")
 
 
-@jit
+#@jit
 def _t_to_c_indef(f, params: Binary):
     if isinstance(params, VacuumBinary):
         return _t_to_c_indef_v(f, params)
@@ -255,12 +285,14 @@ def _t_to_c_indef(f, params: Binary):
     elif isinstance(params, AccretionDisk):
         return _t_to_c_indef_a(f, params)
     elif isinstance(params, GravAtom):
-        return _t_to_c_indef_g(f, params)
+        return master_call(f, params)[1]
+    elif isinstance(params, SurrogateDD):
+        return _t_to_c_indef_sur(f, params)
     else:
         raise ValueError("'params' type is not supported")
 
 
-@jit
+#@jit
 def d2Phi_dt2(f, params: Binary):
     if isinstance(params, VacuumBinary):
         return d2Phi_dt2_v(f, params)
@@ -271,37 +303,39 @@ def d2Phi_dt2(f, params: Binary):
     elif isinstance(params, AccretionDisk):
         return d2Phi_dt2_a(f, params)
     elif isinstance(params, GravAtom):
-        return d2Phi_dt2_g(f, params)
+        return master_call(f, params)[2](f)
+    elif isinstance(params, SurrogateDD):
+        return d2Phi_dt2_sur(f, params)
     else:
         raise ValueError("'params' type is not supported")
 
 
 # Vacuum binary
-@jit
+#@jit
 def _Phi_to_c_indef_v(f, params: VacuumBinary):
     return get_a_v(params.M_chirp) / f ** (5 / 3)
 
 
-@jit
+#@jit
 def _t_to_c_indef_v(f, params: VacuumBinary):
     return 5 * get_a_v(params.M_chirp) / (16 * pi * f ** (8 / 3))
 
 
-@jit
+#@jit
 def d2Phi_dt2_v(f, params: VacuumBinary):
     return 12 * pi ** 2 * f ** (11 / 3) / (5 * get_a_v(params.M_chirp))
 
 
-@jit
+#@jit
 def make_vacuum_binary(
     m_1,
     m_2,
-    Phi_c=jnp.array(0.0),
+    Phi_c=np.array(0.0),
     t_c=None,
-    dL=jnp.array(1e8 * PC),
+    dL=np.array(1e8 * PC),
 ) -> VacuumBinary:
     M_chirp = get_M_chirp(m_1, m_2)
-    tT_c = jnp.array(0.0) if t_c is None else t_c + dL / C
+    tT_c = np.array(0.0) if t_c is None else t_c + dL / C
     f_c = get_f_isco(m_1)
     return VacuumBinary(M_chirp, Phi_c, tT_c, dL, f_c)
 
@@ -313,19 +347,19 @@ def hypgeom_scipy(b, z):
 
 
 def get_hypgeom_interps(n_bs=5000, n_zs=4950):
-    bs = jnp.linspace(0.5, 1.99, n_bs)
-    log10_abs_zs = jnp.linspace(-8, 6, n_zs)
+    bs = np.linspace(0.5, 1.99, n_bs)
+    log10_abs_zs = np.linspace(-8, 6, n_zs)
     zs = -(10 ** log10_abs_zs)
-    b_mg, z_mg = jnp.meshgrid(bs, zs, indexing="ij")
+    b_mg, z_mg = np.meshgrid(bs, zs, indexing="ij")
 
-    vals_pos = jnp.array(hypgeom_scipy(b_mg, z_mg))
-    vals_neg = jnp.log10(1 - hypgeom_scipy(-b_mg[::-1, :], z_mg))
+    vals_pos = np.array(hypgeom_scipy(b_mg, z_mg))
+    vals_neg = np.log10(1 - hypgeom_scipy(-b_mg[::-1, :], z_mg))
 
     interp_pos = lambda b, z: interp2d(
-        b, jnp.log10(-z), bs, log10_abs_zs, vals_pos, jnp.nan
+        b, np.log10(-z), bs, log10_abs_zs, vals_pos, np.nan
     )
     interp_neg = lambda b, z: 1 - 10 ** interp2d(
-        b, jnp.log10(-z), -bs[::-1], log10_abs_zs, vals_neg, jnp.nan
+        b, np.log10(-z), -bs[::-1], log10_abs_zs, vals_neg, np.nan
     )
     return interp_pos, interp_neg
 
@@ -333,23 +367,32 @@ def get_hypgeom_interps(n_bs=5000, n_zs=4950):
 interp_pos, interp_neg = get_hypgeom_interps()
 
 
-def restricted_hypgeom(b, z: jnp.ndarray) -> jnp.ndarray:
+def restricted_hypgeom(b, z: np.ndarray) -> np.ndarray:
     # Assumes b is a scalar
-    return jax.lax.cond(
-        b > 0, lambda z: interp_pos(b, z), lambda z: interp_neg(b, z), z
-    )
+    if b>0:
+        return interp_pos(b, z)
+    else:
+        return interp_neg(b, z)
+#    return jax.lax.cond(
+#        b > 0, lambda z: interp_pos(b, z), lambda z: interp_neg(b, z), z
+#    )
 
 
-@jit
-def hypgeom_jax(b, z: jnp.ndarray) -> jnp.ndarray:
+#@jit
+def hypgeom_jax(b, z: np.ndarray) -> np.ndarray:
     # print(
     #     f"b: {b}, "
     #     f"log10(|z|) min: {jnp.log10(jnp.abs(z)).min()}, "
     #     f"log10(|z|) max: {jnp.log10(jnp.abs(z)).max()}"
     # )
-    return jax.lax.cond(
-        b == 1, lambda z: jnp.log(1 - z) / (-z), lambda z: restricted_hypgeom(b, z), z
-    )
+    if b==1:
+        return np.log(1 - z) / (-z)
+    else:
+        return restricted_hypgeom(b, z)
+
+    #jax.lax.cond(
+    #    b == 1, lambda z: np.log(1 - z) / (-z), lambda z: restricted_hypgeom(b, z), z
+    #)
 
 
 # hypgeom = hypgeom_scipy
@@ -357,19 +400,19 @@ hypgeom = hypgeom_jax
 
 
 # Static
-@jit
+#@jit
 def get_th_s(gamma_s):
     return 5 / (11 - 2 * gamma_s)
 
 
-@jit
+#@jit
 def _Phi_to_c_indef_s(f, params: StaticDress):
     x = f / get_f_eq(params.gamma_s, params.c_f)
     th = get_th_s(params.gamma_s)
     return get_a_v(params.M_chirp) / f ** (5 / 3) * hypgeom(th, -(x ** (-5 / (3 * th))))
 
 
-@jit
+#@jit
 def _t_to_c_indef_s(f, params: StaticDress):
     th = get_th_s(params.gamma_s)
     return (
@@ -380,7 +423,7 @@ def _t_to_c_indef_s(f, params: StaticDress):
     )
 
 
-@jit
+#@jit
 def d2Phi_dt2_s(f, params: StaticDress):
     return (
         12
@@ -390,26 +433,26 @@ def d2Phi_dt2_s(f, params: StaticDress):
     )
 
 
-@jit
+#@jit
 def make_static_dress(
     m_1,
     m_2,
     rho_6,
     gamma_s,
-    Phi_c=jnp.array(0.0),
+    Phi_c=np.array(0.0),
     t_c=None,
-    dL=jnp.array(1e8 * PC),
+    dL=np.array(1e8 * PC),
 ) -> StaticDress:
     rho_s = get_rho_s(rho_6, m_1, gamma_s)
     c_f = get_c_f(m_1, m_2, rho_s, gamma_s)
     M_chirp = get_M_chirp(m_1, m_2)
-    tT_c = jnp.array(0.0) if t_c is None else t_c + dL / C
+    tT_c = np.array(0.0) if t_c is None else t_c + dL / C
     f_c = get_f_isco(m_1)
     return StaticDress(gamma_s, c_f, M_chirp, Phi_c, tT_c, dL, f_c)
 
 
 # Dynamic
-@jit
+#@jit
 def get_f_b(m_1, m_2, gamma_s):
     """
     Gets the break frequency for a dynamic dress. This scaling relation was
@@ -425,11 +468,11 @@ def get_f_b(m_1, m_2, gamma_s):
         beta
         * (m_1 / (1e3 * MSUN)) ** (-alpha_1)
         * (m_2 / MSUN) ** alpha_2
-        * (1 + rho * jnp.log(gamma_s / gamma_r))
+        * (1 + rho * np.log(gamma_s / gamma_r))
     )
 
 
-@jit
+#@jit
 def get_f_b_d(params: DynamicDress):
     """
     Gets the break frequency for a dynamic dress using our scaling relation
@@ -440,19 +483,19 @@ def get_f_b_d(params: DynamicDress):
     return get_f_b(m_1, m_2, params.gamma_s)
 
 
-@jit
+#@jit
 def get_th_d():
     GAMMA_E = 5 / 2
     return 5 / (2 * GAMMA_E)
 
 
-@jit
+#@jit
 def get_lam(gamma_s):
     GAMMA_E = 5 / 2
     return (11 - 2 * (gamma_s + GAMMA_E)) / 3
 
 
-@jit
+#@jit
 def get_eta(params: DynamicDress):
     GAMMA_E = 5 / 2
     m_1 = get_m_1(params.M_chirp, params.q)
@@ -468,7 +511,7 @@ def get_eta(params: DynamicDress):
     )
 
 
-@jit
+#@jit
 def _Phi_to_c_indef_d(f, params: DynamicDress):
     f_t = get_f_b_d(params)
     x = f / f_t
@@ -485,7 +528,7 @@ def _Phi_to_c_indef_d(f, params: DynamicDress):
     )
 
 
-@jit
+#@jit
 def _t_to_c_indef_d(f, params: DynamicDress):
     f_t = get_f_b_d(params)
     x = f / f_t
@@ -525,7 +568,7 @@ def _t_to_c_indef_d(f, params: DynamicDress):
     return coeff * (term_1 + term_2 + term_3 + term_4)
 
 
-@jit
+#@jit
 def d2Phi_dt2_d(f, params: DynamicDress):
     f_t = get_f_b_d(params)
     x = f / f_t
@@ -555,35 +598,36 @@ def d2Phi_dt2_d(f, params: DynamicDress):
     )
 
 
-@jit
+#@jit
 def make_dynamic_dress(
     m_1,
     m_2,
     rho_6,
     gamma_s,
-    Phi_c=jnp.array(0.0),
+    Phi_c=np.array(0.0),
     t_c=None,
-    dL=jnp.array(1e8 * PC),
+    dL=np.array(1e8 * PC),
 ) -> DynamicDress:
     M_chirp = get_M_chirp(m_1, m_2)
-    tT_c = jnp.array(0.0) if t_c is None else t_c + dL / C
+    tT_c = np.array(0.0) if t_c is None else t_c + dL / C
     f_c = get_f_isco(m_1)
     return DynamicDress(gamma_s, rho_6, M_chirp, m_2 / m_1, Phi_c, tT_c, dL, f_c)
 
 # Accretion Disk
 
-@jit
+#@jit
 def _Phi_to_c_indef_a(f, params: AccretionDisk):#2pi intdf f dt/df between fc and f
+    M1 = get_m_1(params.M_chirp, params.q)
+    M2 = get_m_2(params.M_chirp, params.q)
 
-    totm=get_m_1(params.M_chirp, params.q) + get_m_2(params.M_chirp, params.q)
+    totm = M1 + M2
+
+    #inout = -1 is inwards torque, so speeds up inspiral
 
     # 'z' position i.e. last argument of hyp2f1
 
-    zf = 4 * jnp.sqrt(2/3) * f**(8/3) * G * get_m_1(params.M_chirp, params.q)**3\
-     * jnp.pi**(8/3)/(5 * C**4 * (G * totm**4)**(1/3) * params.Mach**2 * params.Sigma0)
-
-#    zfc = 4 * jnp.sqrt(2/3) * params.f_c**(8/3) * G * get_m_1(params.M_chirp, params.q)**3\
-#     *jnp.pi**(8/3)/(5 * C**4 * (G * totm**4)**(1/3) *params.Mach**2 * params.Sigma0)
+    zf = params.inout * 64 * jnp.sqrt(2/3) * f**(8/3) * G * M1**3\
+     * jnp.pi**(8/3)/(5 * C**4 * (G * totm**4)**(1/3) * params.SigM2)
 
     def complog(z):
 
@@ -602,41 +646,44 @@ def _Phi_to_c_indef_a(f, params: AccretionDisk):#2pi intdf f dt/df between fc an
 
 
     return (
-        -2 * jnp.pi* (C * get_m_1(params.M_chirp, params.q)**2 *(G * totm)**(
- 1/3) * (-f * hypgeomacc(zf))/(12 * jnp.sqrt(6) * G * get_m_2(params.M_chirp, params.q) * (G * totm**4)**(
- 1/3) * params.Mach**2 * params.Sigma0))
+        params.inout * 4 * jnp.sqrt(2/3) * C * f * M1**2 * totm * jnp.pi  * hyp2f1(3/8,1,11/8,zf)\
+            /(3 * M2 * (G * totm)**(2/3) * (G * totm**4)**(
+ 1/3) * params.SigM2)
     )
 
-
-@jit
+#@jit
 def _t_to_c_indef_a(f, params: AccretionDisk):# -int dfdt/df betweem fc and f
-    totm=get_m_1(params.M_chirp,params.q) + get_m_2(params.M_chirp,params.q)
+    M1 = get_m_1(params.M_chirp, params.q)
+    M2 = get_m_2(params.M_chirp, params.q)
+    totm=M1 + M2
     return (-
-        (1/(96 * jnp.sqrt(6) * get_m_2(params.M_chirp, params.q) * (G * totm**4)**(
- 1/3) * params.Mach**2 * params.Sigma0) * C * get_m_1(params.M_chirp, params.q)**2 * (totm/G**2)**(
- 1/3) * (-8 * jnp.log(f)+
+        (C * M1**2 * (totm/G**2)**(
+ 1/3) * (-params.inout * 8 * jnp.log(f) + params.inout *  
    3 *jnp.log(
-     8 *f**(8/3) * G * get_m_1(params.M_chirp, params.q)**3 * jnp.pi**(8/3) -
-      5 * jnp.sqrt(6) * C**4 * (G * totm**4)**(1/3) * params.Mach**2 * params.Sigma0))
+     128 *f**(8/3) * G * M1**3 * jnp.pi**(8/3) - params.inout *
+      5 * jnp.sqrt(6) * C**4 * (G * totm**4)**(1/3) * params.SigM2))/(6 * jnp.sqrt(6) * M2 * (G * totm**4)**(
+ 1/3) * params.SigM2)
     )
     )
 
-@jit
+#@jit
 def d2Phi_dt2_a(f, params: AccretionDisk):
-    totm=get_m_1(params.M_chirp, params.q) + get_m_2(params.M_chirp, params.q)
-    return (-((24 * f**3 * get_m_2(params.M_chirp, params.q) * ((G * totm)/f**2)**(2/3)\
-         * jnp.pi* (-8 * f**2 * G * get_m_1(params.M_chirp, params.q)**3 * jnp.pi**(8/3) +5\
+    M1 = get_m_1(params.M_chirp, params.q)
+    M2 = get_m_2(params.M_chirp, params.q)
+    totm = M1 + M2
+    return (-((3 * f**3 * M2 * ((G * totm)/f**2)**(2/3) * jnp.pi\
+         * (-params.inout * 128 * f**2 * G * M1**3 * jnp.pi**(8/3) +5\
           * jnp.sqrt(6) * C**3 * totm * jnp.sqrt(G *totm)* ((G *totm)/f**2)**(1/6)\
-           * jnp.sqrt(C**2/(f**2 *((G *totm)/f**2)**(2/3))) * params.Mach**2 * params.Sigma0)/\
-           (5 * C**5 * get_m_1(params.M_chirp, params.q)**2 * totm)))
+           * jnp.sqrt(C**2/(f**2 *((G *totm)/f**2)**(2/3))) * params.SigM2)/\
+           (10 * C**5 * M1**2 * totm)))
     )
 
-@jit
+#@jit
 def make_accretion_disk(
     m_1,
     m_2,
-    Sigma0,
-    Mach,
+    SigM2,
+    inout,
     Phi_c=jnp.array(0.0),
     t_c=None,
     dL=jnp.array(1e8 * PC),
@@ -644,51 +691,87 @@ def make_accretion_disk(
     M_chirp = get_M_chirp(m_1, m_2)
     tT_c = jnp.array(0.0) if t_c is None else t_c + dL / C
     f_c = get_f_isco(m_1)
-    return AccretionDisk(Sigma0, Mach, M_chirp, m_2/m_1, Phi_c, tT_c, dL, f_c)
+    return AccretionDisk(SigM2, inout, M_chirp, m_2/m_1, Phi_c, tT_c, dL, f_c)
 
 # GravAtom
-@jit
-def _Phi_to_c_indef_g(f, params: GravAtom):#2pi intdf f dt/df between fc and f
+
+def master_call(f, params: GravAtom):
+    ga_results = gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN,
+    params.alpha, params.q, params.epsilon_init,
+    R_211, ion_r_co_211, ion_E_co_211)
+
+    return ga_results[7], ga_results[6], ga_results[8]#(f)
+#@jit
+#def _Phi_to_c_indef_g(f, params: GravAtom):#2pi intdf f dt/df between fc and f
 
 #    return Phi_interp_ga(get_m_1(params.M_chirp, params.q)/MSUN)(f)
 
-    return gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN, 2, 1, 1,
-    params.alpha, params.q, params.epsilon_init,
-    0, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211)[7](f) #index 7 here gives Phi_interp
+#    return gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN, 2, 1, 1,
+#    params.alpha, params.q, params.epsilon_init,
+#    0, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211)[7](f) #index 7 here gives Phi_interp
 
 
-@jit
-def _t_to_c_indef_g(f, params: GravAtom):# -int dfdt/df betweem fc and f
+#@jit
+#def _t_to_c_indef_g(f, params: GravAtom):# -int dfdt/df betweem fc and f
 
-#    return t_interp_ga(get_m_1(params.M_chirp, params.q)/MSUN)(f)
-    gatom_results = gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN, 2, 1, 1,
-    params.alpha, params.q, params.epsilon_init,
-    0, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211)
-    return jnp.interp(f,gatom_results[2],-gatom_results[0]*(60*60*24*365.25))
+#    return gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN, 2, 1, 1,
+#    params.alpha, params.q, params.epsilon_init,
+#    0, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211)[6](f)
 
-@jit
-def d2Phi_dt2_g(f, params: GravAtom):
+#@jit
+#def d2Phi_dt2_g(f, params: GravAtom):
 
 #    return Phi_dd_interp_ga(get_m_1(params.M_chirp, params.q)/MSUN)(f)
 
-    return gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN, 2, 1, 1,
-    params.alpha, params.q, params.epsilon_init,
-    0, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211)[8](f)
+#    return gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN, 2, 1, 1,
+#    params.alpha, params.q, params.epsilon_init,
+#    0, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211)[8](f)
 
-@jit
+#@jit
 def make_grav_atom(
     m_1,
     m_2,
     alpha,
     epsilon_init,
-    Phi_c=jnp.array(0.0),
+    Phi_c=np.array(0.0),
     t_c=None,
-    dL=jnp.array(1e8 * PC),
+    dL=np.array(1e8 * PC),
 ) -> GravAtom:
     M_chirp = get_M_chirp(m_1, m_2)
-    tT_c = jnp.array(0.0) if t_c is None else t_c + dL / C
+    tT_c = np.array(0.0) if t_c is None else t_c + dL / C
     f_c = get_f_isco(m_1)
     return GravAtom(alpha, epsilon_init, M_chirp, m_2/m_1, Phi_c, tT_c, dL, f_c)
+
+
+# Surrogate dynamic dark dress
+def _Phi_to_c_indef_sur(f, params: SurrogateDD):
+    input_ = np.array([get_m_1(params.M_chirp,params.q)/MSUN, get_m_2(params.M_chirp,params.q)/MSUN, params.rho_6 / (1e16 * MSUN/(PC**3)), params.gamma_s])
+    phi_interp = interp1d(getPrediction(model,input_)[0][::-1],np.log(np.array(getPrediction(model,input_)[1][::-1],dtype=float)), fill_value = 'extrapolate', kind = 'cubic')
+    return np.exp(phi_interp(f))
+
+def _t_to_c_indef_sur(f, params: SurrogateDD):
+    input_ = np.array([get_m_1(params.M_chirp,params.q)/MSUN, get_m_2(params.M_chirp,params.q)/MSUN, params.rho_6 / (1e16 * MSUN/(PC**3)), params.gamma_s])
+    t_interp = interp1d(getPrediction(model,input_)[0][::-1],getPrediction(model,input_)[2][::-1], fill_value = 'extrapolate', kind = 'cubic')
+    return t_interp(f)
+
+def d2Phi_dt2_sur(f, params: SurrogateDD):
+    input_ = np.array([get_m_1(params.M_chirp,params.q)/MSUN, get_m_2(params.M_chirp,params.q)/MSUN, params.rho_6 / (1e16 * MSUN/(PC**3)), params.gamma_s])
+    phidd_interp = interp1d(getPrediction(model,input_)[0][::-1],np.log(np.array(getPrediction(model,input_)[3][::-1],dtype=float)), fill_value = 'extrapolate', kind = 'cubic')
+    return np.exp(phidd_interp(f))
+
+def make_surr_dd(
+    m_1,
+    m_2,
+    rho_6,
+    gamma_s,
+    Phi_c=np.array(0.0),
+    t_c=None,
+    dL=np.array(1e8 * PC),
+) -> GravAtom:
+    M_chirp = get_M_chirp(m_1, m_2)
+    tT_c = np.array(0.0) if t_c is None else t_c + dL / C
+    f_c = get_f_isco(m_1)
+    return SurrogateDD(gamma_s, rho_6, M_chirp, m_2/m_1, Phi_c, tT_c, dL, f_c)
 
 def get_f_range(params: Binary, t_obs: float, bracket=None) -> Tuple[float, float]:
     """
@@ -698,16 +781,16 @@ def get_f_range(params: Binary, t_obs: float, bracket=None) -> Tuple[float, floa
     if bracket is None:
         bracket = (params.f_c * 0.001, params.f_c * 1.1)
 
-    fn = lambda f_l: (jax.jit(t_to_c)(f_l, params) - (t_obs + params.tT_c)) ** 2
-#    fn = lambda f_l: (t_to_c(f_l, params) - (t_obs + params.tT_c)) ** 2
-    res = minimize_scalar(fn, bounds=bracket)
+#    fn = lambda f_l: (jax.jit(t_to_c)(f_l, params) - (t_obs + params.tT_c)) ** 2
+    fn = lambda f_l: (t_to_c(f_l, params) - (t_obs + params.tT_c)) ** 2
+    res = minimize_scalar(fn, bracket = bracket)#bounds=bracket,
     if not res.success:
         raise RuntimeError(f"finding f_l failed: {res}")
     f_l = res.x
 
     # Find frequency tT_c before merger
-    fn = lambda f_h: (jax.jit(t_to_c)(f_h, params) - params.tT_c) ** 2
-#    fn = lambda f_h: (t_to_c(f_h, params) - params.tT_c) ** 2
+#    fn = lambda f_h: (jax.jit(t_to_c)(f_h, params) - params.tT_c) ** 2
+    fn = lambda f_h: (t_to_c(f_h, params) - params.tT_c) ** 2
     res = minimize_scalar(fn, bracket=bracket)
     if not res.success:
         raise RuntimeError(f"finding f_h failed: {res}")
