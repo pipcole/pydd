@@ -11,10 +11,10 @@ from jaxinterp2d import interp2d
 from scipy.special import hyp2f1
 from pydd.gatom import gatom_interp, R_211, ion_r_co_211, ion_E_co_211
 
-from CDMsur_Backbone import *
-from utils_surr import *
-from dill import load
-model = load(open("cdm_surr_new_data_1000.pkl", "rb")) # load trained surrogate model
+#from CDMsur_Backbone import *
+#from utils_surr import *
+#from dill import load
+#model = load(open("cdm_surr_new_data_1000.pkl", "rb")) # load trained surrogate model
 
 """
 Functions for computing waveforms and various parameters for different types of
@@ -743,35 +743,6 @@ def make_grav_atom(
     return GravAtom(alpha, epsilon_init, M_chirp, m_2/m_1, Phi_c, tT_c, dL, f_c)
 
 
-# Surrogate dynamic dark dress
-def _Phi_to_c_indef_sur(f, params: SurrogateDD):
-    input_ = np.array([get_m_1(params.M_chirp,params.q)/MSUN, get_m_2(params.M_chirp,params.q)/MSUN, params.rho_6 / (1e16 * MSUN/(PC**3)), params.gamma_s])
-    phi_interp = interp1d(getPrediction(model,input_)[0][::-1],np.log(np.array(getPrediction(model,input_)[1][::-1],dtype=float)), fill_value = 'extrapolate', kind = 'cubic')
-    return np.exp(phi_interp(f))
-
-def _t_to_c_indef_sur(f, params: SurrogateDD):
-    input_ = np.array([get_m_1(params.M_chirp,params.q)/MSUN, get_m_2(params.M_chirp,params.q)/MSUN, params.rho_6 / (1e16 * MSUN/(PC**3)), params.gamma_s])
-    t_interp = interp1d(getPrediction(model,input_)[0][::-1],getPrediction(model,input_)[2][::-1], fill_value = 'extrapolate', kind = 'cubic')
-    return t_interp(f)
-
-def d2Phi_dt2_sur(f, params: SurrogateDD):
-    input_ = np.array([get_m_1(params.M_chirp,params.q)/MSUN, get_m_2(params.M_chirp,params.q)/MSUN, params.rho_6 / (1e16 * MSUN/(PC**3)), params.gamma_s])
-    phidd_interp = interp1d(getPrediction(model,input_)[0][::-1],np.log(np.array(getPrediction(model,input_)[3][::-1],dtype=float)), fill_value = 'extrapolate', kind = 'cubic')
-    return np.exp(phidd_interp(f))
-
-def make_surr_dd(
-    m_1,
-    m_2,
-    rho_6,
-    gamma_s,
-    Phi_c=np.array(0.0),
-    t_c=None,
-    dL=np.array(1e8 * PC),
-) -> GravAtom:
-    M_chirp = get_M_chirp(m_1, m_2)
-    tT_c = np.array(0.0) if t_c is None else t_c + dL / C
-    f_c = get_f_isco(m_1)
-    return SurrogateDD(gamma_s, rho_6, M_chirp, m_2/m_1, Phi_c, tT_c, dL, f_c)
 
 def get_f_range(params: Binary, t_obs: float, bracket=None) -> Tuple[float, float]:
     """
