@@ -46,7 +46,7 @@ def dtOverdr_extra(q, dqOverdt, rs, r, Omega0, epsilon, alpha, ion_energy): #Eq.
 
 #F#For a |211> cloud, we import the following tabulated data, can be rescaled for arbritary alpha, q, M_cloud
 # R_211, ion_r_co_211, ion_E_co_211, PionOverPGW_co_211, ion_r_count_211, ion_E_count_211, PionOverPGW_count_211 = jnp.loadtxt('211.txt', ujnpack=True)
-R_211, ion_r_co_211, ion_E_co_211, PionOverPGW_co_211, ion_r_count_211, ion_E_count_211, PionOverPGW_count_211 = loadtxt('/Users/GRAPPA/Downloads/pydd-main/src/pydd/211_1.txt',unpack=True)#b_211['array1'], b_211['array2'], b_211['array3'], b_211['array4'], b_211['array5'], b_211['array6'], b_211['array7']
+R_211, ion_r_co_211, ion_E_co_211, PionOverPGW_co_211, ion_r_count_211, ion_E_count_211, PionOverPGW_count_211 = loadtxt('211_1.txt',unpack=True)#b_211['array1'], b_211['array2'], b_211['array3'], b_211['array4'], b_211['array5'], b_211['array6'], b_211['array7']
 # R_322, ion_r_co_322, ion_E_co_322, PionOverPGW_co_322, ion_r_count_322, ion_E_count_322, PionOverPGW_count_322 = jnp.loadtxt('322.txt', ujnpack=True)
 # R_311, ion_r_co_311, ion_E_co_311, PionOverPGW_co_311, ion_r_count_311, ion_E_count_311, PionOverPGW_count_311 = jnp.loadtxt('311.txt', ujnpack=True)
 # R_320, ion_r_co_320, ion_E_co_320, PionOverPGW_co_320, ion_r_count_320, ion_E_count_320, PionOverPGW_count_320 = jnp.loadtxt('320.txt', ujnpack=True)
