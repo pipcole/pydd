@@ -1,3 +1,4 @@
+import numpy as np
 from .binary import Binary, Psi, amp
 from .noise import S_n_LISA
 
