@@ -1,4 +1,5 @@
 import numpy as np
+
 from .binary import Binary, Psi, amp
 from .noise import S_n_LISA
 
@@ -138,3 +139,36 @@ def faithfulness_fft(
     # Inner product of waveforms, maximized over Phi_c by taking absolute value
     ip_hd = calculate_match_unnormd_fft(params_h, params_d, fs, pad_low, pad_high, S_n)
     return ip_hd / (ip_hh * ip_dd)
+
+def calculate_match_unnormd_fft_data(
+    params_h: Binary, signal_data, fs, pad_low, pad_high, S_n=S_n_LISA
+):
+    """
+    Inner product of waveforms, maximized over Phi_c by taking absolute value
+    and t_c using the fast Fourier transform.
+    """
+    df = fs[1] - fs[0]
+    wf_h = amp(fs, params_h) * np.exp(1j * Psi(fs, params_h))
+    wf_d = signal_data(fs)
+    Sns = S_n(fs)
+
+    # Use IFFT trick to maximize over t_c. Ref: Maggiore's book, eq. 7.171.
+    integrand = 4 * wf_h.conj() * wf_d / Sns * df
+    integrand_padded = np.concatenate((pad_low, integrand, pad_high))
+    # print(low_padding, high_padding, len(fs), N)
+    return np.abs(len(integrand_padded) * np.fft.ifft(integrand_padded)).max()
+
+def loglikelihood_fft_data(
+    params_h: Binary, signal_data, fs, pad_low, pad_high, S_n=S_n_LISA
+):
+    """
+    Log-likelihood for a signal from a binary params_d modeled using params_h,
+    maximized over the distance to the binary, Phi_c and t_c (i.e., all
+    extrinsic parameters).
+    """
+    # Waveform magnitude
+    ip_hh = calculate_SNR(params_h, fs, S_n) ** 2
+    # Inner product of waveforms, maximized over Phi_c by taking absolute value
+    ip_hd = calculate_match_unnormd_fft_data(params_h, signal_data, fs, pad_low, pad_high, S_n)
+    # Maximize over distance
+    return 1 / 2 * ip_hd ** 2 / ip_hh

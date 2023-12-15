@@ -2,9 +2,13 @@ from math import pi
 from typing import Callable, NamedTuple, Tuple, Type, Union
 from scipy.optimize import minimize_scalar
 
+#import jax
+#from jax import jit
+#import jax.numpy as jnp
 import numpy as np
 from scipy.special import betainc
 
+#from jaxinterp2d import interp2d
 from scipy.interpolate import interp2d, RegularGridInterpolator
 from scipy.special import hyp2f1
 from pydd.gatom import gatom_interp, R_211, ion_r_co_211, ion_E_co_211
@@ -37,21 +41,33 @@ class VacuumBinary(NamedTuple):
     """
     GR-in-vacuum binary.
     """
-# option to include PN corrections to GW emission term
- #   PN: np.ndarray
+
+    PN: np.ndarray
     M_chirp: np.ndarray
     Phi_c: np.ndarray
     tT_c: np.ndarray
     dL: np.ndarray
     f_c: np.ndarray
 
+class PNBinary(NamedTuple):
+    """
+    2PN order vacuum binary, zero spin
+    """
+    PN: np.ndarray
+    M_chirp: np.ndarray
+    q: np.ndarray
+    Phi_c: np.ndarray
+    tT_c: np.ndarray
+    dL: np.ndarray
+    f_c: np.ndarray
+    
 
 class StaticDress(NamedTuple):
     """
     A dark dress with a non-evolving DM halo.
     """
 
-  #  PN: np.ndarray
+    PN: np.ndarray
     gamma_s: np.ndarray
     c_f: np.ndarray
     M_chirp: np.ndarray
@@ -66,7 +82,7 @@ class DynamicDress(NamedTuple):
     A dark dress with an evolving DM halo.
     """
 
- #   PN: np.ndarray
+    PN: np.ndarray
     gamma_s: np.ndarray
     rho_6: np.ndarray
     M_chirp: np.ndarray
@@ -81,7 +97,7 @@ class AccretionDisk(NamedTuple):
     Analytic approximation to thin accretion disk.
 
     """
-#    PN: np.ndarray
+    PN: np.ndarray
     SigM2: np.ndarray
     inout: np.ndarray
     M_chirp: np.ndarray
@@ -97,7 +113,7 @@ class GravAtom(NamedTuple):
 
     """
 
-#    PN: np.ndarray
+    PN: np.ndarray
     alpha: np.ndarray
     epsilon_init: np.ndarray
     M_chirp: np.ndarray
@@ -113,7 +129,7 @@ class SurrogateDD(NamedTuple):
     Surrogate model for dark dress with an evolving DM halo.
     """
 
-#    PN: np.ndarray
+    PN: np.ndarray
     gamma_s: np.ndarray
     rho_6: np.ndarray
     M_chirp: np.ndarray
@@ -189,7 +205,7 @@ class Combo(NamedTuple):
     dL: np.ndarray
     f_c: np.ndarray
 
-Binary = Union[VacuumBinary, StaticDress, DynamicDress, AccretionDisk, GravAtom, SurrogateDD, DynamicDressShift, AccretionDiskShift, GravAtomShift, Combo]
+Binary = Union[VacuumBinary, PNBinary, StaticDress, DynamicDress, AccretionDisk, GravAtom, SurrogateDD, DynamicDressShift, AccretionDiskShift, GravAtomShift, Combo]
 
 
 #@jit
@@ -285,6 +301,19 @@ def Psi(f, params: Binary):
 
 #@jit
 def h_0(f, params: Binary):
+    if isinstance(params, PNBinary):
+        m1 = get_m_1(params.M_chirp, params.q)
+        m2 = get_m_2(params.M_chirp, params.q)
+        V2 = (2 * np.pi * (m1 + m2) * f * G/(2 * C**3))**(1/3)
+        eta = m1 * m2 / (m1 + m2)**2
+        return np.where(
+        f <= params.f_c, -(G**2/C**5) * 
+        (m1 + m2)**2 * np.pi * np.sqrt(2*eta/3) * V2**-3.5 * (-1 + 
+        ((323/224) - (451 * eta/168)) * V2**2 +
+        ((27312085/8128512) + (1975055 * eta/338688) - (105271 * eta**2/24192)) * V2**4),
+        0.0,
+    )
+
     return np.where(
         f <= params.f_c,
         1
@@ -304,6 +333,7 @@ def amp(f, params: Binary):
     """
     Amplitude averaged over inclination angle.
     """
+ 
     return np.sqrt(4 / 5) * h_0(f, params) / params.dL
 
 
@@ -335,6 +365,8 @@ def t_to_c(f, params: Binary):
 def _Phi_to_c_indef(f, params: Binary):
     if isinstance(params, VacuumBinary):
         return _Phi_to_c_indef_v(f, params)
+    elif isinstance(params, PNBinary):
+        return _Phi_to_c_indef_v(f, params)
     elif isinstance(params, StaticDress):
         return _Phi_to_c_indef_s(f, params)
     elif isinstance(params, DynamicDress):
@@ -360,6 +392,8 @@ def _Phi_to_c_indef(f, params: Binary):
 #@jit
 def _t_to_c_indef(f, params: Binary):
     if isinstance(params, VacuumBinary):
+        return _t_to_c_indef_v(f, params)
+    elif isinstance(params, PNBinary):
         return _t_to_c_indef_v(f, params)
     elif isinstance(params, StaticDress):
         return _t_to_c_indef_s(f, params)
@@ -387,6 +421,8 @@ def _t_to_c_indef(f, params: Binary):
 def d2Phi_dt2(f, params: Binary):
     if isinstance(params, VacuumBinary):
         return d2Phi_dt2_v(f, params)
+    if isinstance(params, PNBinary):
+        return d2Phi_dt2_v(f, params)
     elif isinstance(params, StaticDress):
         return d2Phi_dt2_s(f, params)
     elif isinstance(params, DynamicDress):
@@ -408,8 +444,6 @@ def d2Phi_dt2(f, params: Binary):
     else:
         raise ValueError("'params' type is not supported")
 
-# PN corrections if using, need to de-comment terms in each phase/time/derivative of phase function
-
 def phasePN(nu, v):
     return (3715/1008 + 55 * nu /12) * v**2 - 10 * pi * v**3 +(15293365/1016064 + 27145 * nu /1008 + 3085 * nu**2 / 144) * v**4
 
@@ -425,35 +459,38 @@ def ddphasePN(f, m1, m2, nu):
         (3058673*((f*G*(m1 + m2))/C**3)**(1/3) + 
         1008*((f*G*(m1 + m2))/C**3)**(1/3)*nu*(5429 + 4319*nu) - 
         4064256*pi**(2/3))*pi**(4/3))))
+ #   return (-64512*get_M_chirp(m1, m2)*f**(11/3)*G*   ((f*G*(m1 + m2))/C**3)**(1/3)*pi**(11/3))/(5.*(C**3/(get_M_chirp(m1, m2)*G))**(2/3)*
+  #      (336*C**3*((f*G*(m1 + m2))/C**3)**(1/3) + 
+   #     f*G*(m1 + m2)*(743 + 924*nu)*pi**(2/3)))
 
 # Vacuum binary
-
+#@jit
 def _Phi_to_c_indef_v(f, params: VacuumBinary):
     m_1 = get_m_1(params.M_chirp, 1e-4)
     m_2 = get_m_2(params.M_chirp, 1e-4)
     nu1 = m_1 * m_2/(m_1 + m_2)**2
     v1 = ((G/C**3) * np.pi * (m_1 + m_2) * f)**(1/3)
-    return get_a_v(params.M_chirp) / f ** (5 / 3)# * (1 + params.PN * phasePN(nu1, v1))
+    return get_a_v(params.M_chirp) / f ** (5 / 3) * (1 + params.PN * phasePN(nu1, v1))
 
-
+#@jit
 def _t_to_c_indef_v(f, params: VacuumBinary):
     m_1 = get_m_1(params.M_chirp, 1e-4)
     m_2 = get_m_2(params.M_chirp, 1e-4)
     nu1 = m_1 * m_2/(m_1 + m_2)**2
     v1 = ((G/C**3) * np.pi * (m_1 + m_2) * f)**(1/3)
-    return 5 * get_a_v(params.M_chirp) / (16 * pi * f ** (8 / 3))# *(1 + params.PN * tPN(nu1, v1))
+    return 5 * get_a_v(params.M_chirp) / (16 * pi * f ** (8 / 3)) *(1 + params.PN * tPN(nu1, v1))
 
 
-
+#@jit
 def d2Phi_dt2_v(f, params: VacuumBinary):
     m_1 = get_m_1(params.M_chirp, 1e-4)
     m_2 = get_m_2(params.M_chirp, 1e-4)
     nu1 = m_1 * m_2/(m_1 + m_2)**2
     newton = 12 * pi ** 2 * f ** (11 / 3) / (5 * get_a_v(params.M_chirp))
-    return newton# + params.PN * (-ddphasePN(f, m_1, m_2, nu1) - newton)
+    return newton + params.PN * (-ddphasePN(f, m_1, m_2, nu1) - newton)
 
 
-
+#@jit
 def make_vacuum_binary(
     m_1,
     m_2,
@@ -469,11 +506,12 @@ def make_vacuum_binary(
 
 # Interpolator for special version of hypergeometric function
 def hypgeom_scipy(b, z):
+    # print(f"b: {b}, |z| min: {jnp.abs(z).min()}, |z| max: {jnp.abs(z).max()}")
     return hyp2f1(1, b, 1 + b, z)
 
 
 def get_hypgeom_interps(n_bs=5000, n_zs=4950):
-    bs = np.linspace(0.5, 1.99, n_bs)
+    bs = np.linspace(0.5, 3.0, n_bs)#was 1.99
     log10_abs_zs = np.linspace(-8, 6, n_zs)
     zs = -(10 ** log10_abs_zs)
     b_mg, z_mg = np.meshgrid(bs, zs, indexing="ij")
@@ -490,6 +528,12 @@ def get_hypgeom_interps(n_bs=5000, n_zs=4950):
         (-bs[::-1], log10_abs_zs), 1 - 10 ** vals_neg
     )
 
+#        interp_pos = lambda b, z: interp2d(
+ #       b, np.log10(-z), bs, log10_abs_zs, vals_pos, np.nan
+  #  )
+   # interp_neg = lambda b, z: 1 - 10 ** interp2d(
+    #    b, np.log10(-z), -bs[::-1], log10_abs_zs, vals_neg, np.nan
+    #)
     return interp_pos, interp_neg
 
 
@@ -502,9 +546,12 @@ def restricted_hypgeom(b, z: np.ndarray) -> np.ndarray:
         return interp_pos((b, np.log10(-z)))
     else:
         return interp_neg((b, np.log10(-z)))
+#    return jax.lax.cond(
+#        b > 0, lambda z: interp_pos(b, z), lambda z: interp_neg(b, z), z
+#    )
 
 
-
+#@jit
 def hypgeom_jax(b, z: np.ndarray) -> np.ndarray:
     # print(
     #     f"b: {b}, "
@@ -521,24 +568,24 @@ def hypgeom_jax(b, z: np.ndarray) -> np.ndarray:
     #)
 
 
-# hypgeom = hypgeom_scipy
-hypgeom = hypgeom_jax
+hypgeom = hypgeom_scipy
+#hypgeom = hypgeom_jax
 
 
 # Static
-
+#@jit
 def get_th_s(gamma_s):
     return 5 / (11 - 2 * gamma_s)
 
 
-
+#@jit
 def _Phi_to_c_indef_s(f, params: StaticDress):
     x = f / get_f_eq(params.gamma_s, params.c_f)
     th = get_th_s(params.gamma_s)
     return get_a_v(params.M_chirp) / f ** (5 / 3) * hypgeom(th, -(x ** (-5 / (3 * th))))
 
 
-
+#@jit
 def _t_to_c_indef_s(f, params: StaticDress):
     th = get_th_s(params.gamma_s)
     return (
@@ -549,7 +596,7 @@ def _t_to_c_indef_s(f, params: StaticDress):
     )
 
 
-
+#@jit
 def d2Phi_dt2_s(f, params: StaticDress):
     return (
         12
@@ -559,7 +606,7 @@ def d2Phi_dt2_s(f, params: StaticDress):
     )
 
 
-
+#@jit
 def make_static_dress(
     m_1,
     m_2,
@@ -578,7 +625,7 @@ def make_static_dress(
 
 
 # Dynamic
-
+#@jit
 def get_f_b(m_1, m_2, gamma_s):
     """
     Gets the break frequency for a dynamic dress. This scaling relation was
@@ -598,7 +645,7 @@ def get_f_b(m_1, m_2, gamma_s):
     )
 
 
-
+#@jit
 def get_f_b_d(params: DynamicDress):
     """
     Gets the break frequency for a dynamic dress using our scaling relation
@@ -609,16 +656,19 @@ def get_f_b_d(params: DynamicDress):
     return get_f_b(m_1, m_2, params.gamma_s)
 
 
+#@jit
 def get_th_d():
     GAMMA_E = 5 / 2
     return 5 / (2 * GAMMA_E)
 
 
+#@jit
 def get_lam(gamma_s):
     GAMMA_E = 5 / 2
     return (11 - 2 * (gamma_s + GAMMA_E)) / 3
 
 
+#@jit
 def get_eta(params: DynamicDress):
     GAMMA_E = 5 / 2
     m_1 = get_m_1(params.M_chirp, params.q)
@@ -634,6 +684,7 @@ def get_eta(params: DynamicDress):
     )
 
 
+#@jit
 def _Phi_to_c_indef_d(f, params: DynamicDress):
     f_t = get_f_b_d(params)
     x = f / f_t
@@ -651,9 +702,10 @@ def _Phi_to_c_indef_d(f, params: DynamicDress):
             * x ** (-get_lam(params.gamma_s))
             * (1 - hypgeom(th, -(x ** (-5 / (3 * th)))))
         )
-    )# + get_a_v(params.M_chirp) / f ** (5 / 3)# * (params.PN * phasePN(nu1, v1))
+    ) + get_a_v(params.M_chirp) / f ** (5 / 3) * (params.PN * phasePN(nu1, v1))
 
 
+#@jit
 def _t_to_c_indef_d(f, params: DynamicDress):
     f_t = get_f_b_d(params)
     x = f / f_t
@@ -694,9 +746,10 @@ def _t_to_c_indef_d(f, params: DynamicDress):
     m_2 = get_m_2(params.M_chirp, params.q)
     nu1 = m_1 * m_2/(m_1 + m_2)**2
     v1 = ((G/C**3) * pi * (m_1 + m_2) * f)**(1/3)
-    return coeff * (term_1 + term_2 + term_3 + term_4)# + 5 * get_a_v(params.M_chirp) / (16 * pi * f ** (8 / 3))# *(params.PN * tPN(nu1, v1))
+    return coeff * (term_1 + term_2 + term_3 + term_4) + 5 * get_a_v(params.M_chirp) / (16 * pi * f ** (8 / 3)) *(params.PN * tPN(nu1, v1))
 
 
+#@jit
 def d2Phi_dt2_d(f, params: DynamicDress):
     f_t = get_f_b_d(params)
     x = f / f_t
@@ -727,9 +780,10 @@ def d2Phi_dt2_d(f, params: DynamicDress):
                 * hypgeom(th, -(x ** (-5 / (3 * th))))
             )
         )
-    )#+ params.PN * (-ddphasePN(f, m_1, m_2, nu1) - newton)
+    )+ params.PN * (-ddphasePN(f, m_1, m_2, nu1) - newton)
 
 
+#@jit
 def make_dynamic_dress(
     m_1,
     m_2,
@@ -744,8 +798,8 @@ def make_dynamic_dress(
     f_c = get_f_isco(m_1)
     return DynamicDress(gamma_s, rho_6, M_chirp, m_2 / m_1, Phi_c, tT_c, dL, f_c)
 
-# Dynamic Shifted - shift phase by a constant multiplicative factor to simulate an unknown systematic
-
+# Dynamic Shifted
+#@jit
 def get_f_b(m_1, m_2, gamma_s):
     """
     Gets the break frequency for a dynamic dress. This scaling relation was
@@ -765,6 +819,7 @@ def get_f_b(m_1, m_2, gamma_s):
     )
 
 
+#@jit
 def get_f_b_d(params: DynamicDressShift):
     """
     Gets the break frequency for a dynamic dress using our scaling relation
@@ -775,16 +830,19 @@ def get_f_b_d(params: DynamicDressShift):
     return get_f_b(m_1, m_2, params.gamma_s)
 
 
+#@jit
 def get_th_d():
     GAMMA_E = 5 / 2
     return 5 / (2 * GAMMA_E)
 
 
+#@jit
 def get_lam(gamma_s):
     GAMMA_E = 5 / 2
     return (11 - 2 * (gamma_s + GAMMA_E)) / 3
 
 
+#@jit
 def get_eta(params: DynamicDressShift):
     GAMMA_E = 5 / 2
     m_1 = get_m_1(params.M_chirp, params.q)
@@ -800,6 +858,7 @@ def get_eta(params: DynamicDressShift):
     )
 
 
+#@jit
 def _Phi_to_c_indef_ds(f, params: DynamicDressShift):
     f_t = get_f_b_d(params)
     x = f / f_t
@@ -816,6 +875,7 @@ def _Phi_to_c_indef_ds(f, params: DynamicDressShift):
     )
 
 
+#@jit
 def _t_to_c_indef_ds(f, params: DynamicDressShift):
     f_t = get_f_b_d(params)
     x = f / f_t
@@ -855,6 +915,7 @@ def _t_to_c_indef_ds(f, params: DynamicDressShift):
     return coeff * (term_1 + term_2 + term_3 + term_4)
 
 
+#@jit
 def d2Phi_dt2_ds(f, params: DynamicDressShift):
     f_t = get_f_b_d(params)
     x = f / f_t
@@ -884,6 +945,7 @@ def d2Phi_dt2_ds(f, params: DynamicDressShift):
     )
 
 
+#@jit
 def make_dynamic_dress_shift(ig,
     m_1,
     m_2,
@@ -900,6 +962,7 @@ def make_dynamic_dress_shift(ig,
 
 # Accretion Disk
 
+#@jit
 def _Phi_to_c_indef_a(f, params: AccretionDisk):#2pi intdf f dt/df between fc and f
     M1 = get_m_1(params.M_chirp, params.q)
     M2 = get_m_2(params.M_chirp, params.q)
@@ -935,7 +998,7 @@ def _Phi_to_c_indef_a(f, params: AccretionDisk):#2pi intdf f dt/df between fc an
  1/3) * params.SigM2)
     )
 
-
+#@jit
 def _t_to_c_indef_a(f, params: AccretionDisk):# -int dfdt/df betweem fc and f
     M1 = get_m_1(params.M_chirp, params.q)
     M2 = get_m_2(params.M_chirp, params.q)
@@ -950,7 +1013,7 @@ def _t_to_c_indef_a(f, params: AccretionDisk):# -int dfdt/df betweem fc and f
     )
     )
 
-
+#@jit
 def d2Phi_dt2_a(f, params: AccretionDisk):
     M1 = get_m_1(params.M_chirp, params.q)
     M2 = get_m_2(params.M_chirp, params.q)
@@ -962,7 +1025,7 @@ def d2Phi_dt2_a(f, params: AccretionDisk):
            (10 * C**5 * M1**2 * totm)))
     )
 
-
+#@jit
 def make_accretion_disk(
     m_1,
     m_2,
@@ -979,7 +1042,7 @@ def make_accretion_disk(
 
 # Accretion Disk Shifted
 
-
+#@jit
 def _Phi_to_c_indef_as(f, params: AccretionDiskShift):#2pi intdf f dt/df between fc and f
     M1 = get_m_1(params.M_chirp, params.q)
     M2 = get_m_2(params.M_chirp, params.q)
@@ -1015,7 +1078,7 @@ def _Phi_to_c_indef_as(f, params: AccretionDiskShift):#2pi intdf f dt/df between
  1/3) * params.SigM2)
     )
 
-
+#@jit
 def _t_to_c_indef_as(f, params: AccretionDiskShift):# -int dfdt/df betweem fc and f
     M1 = get_m_1(params.M_chirp, params.q)
     M2 = get_m_2(params.M_chirp, params.q)
@@ -1030,7 +1093,7 @@ def _t_to_c_indef_as(f, params: AccretionDiskShift):# -int dfdt/df betweem fc an
     )
     )
 
-
+#@jit
 def d2Phi_dt2_as(f, params: AccretionDiskShift):
     M1 = get_m_1(params.M_chirp, params.q)
     M2 = get_m_2(params.M_chirp, params.q)
@@ -1064,8 +1127,32 @@ def master_call(f, params: GravAtom):
     params.alpha, params.q, params.epsilon_init,
     R_211, ion_r_co_211, ion_E_co_211)
 
-    return ga_results[7], ga_results[6], ga_results[8]
+    return ga_results[7], ga_results[6], ga_results[8]#(f)
+#@jit
+#def _Phi_to_c_indef_g(f, params: GravAtom):#2pi intdf f dt/df between fc and f
 
+#    return Phi_interp_ga(get_m_1(params.M_chirp, params.q)/MSUN)(f)
+
+#    return gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN, 2, 1, 1,
+#    params.alpha, params.q, params.epsilon_init,
+#    0, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211)[7](f) #index 7 here gives Phi_interp
+
+
+#@jit
+#def _t_to_c_indef_g(f, params: GravAtom):# -int dfdt/df betweem fc and f
+
+#    return gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN, 2, 1, 1,
+#    params.alpha, params.q, params.epsilon_init,
+#    0, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211)[6](f)
+
+#@jit
+#def d2Phi_dt2_g(f, params: GravAtom):
+
+#    return Phi_dd_interp_ga(get_m_1(params.M_chirp, params.q)/MSUN)(f)
+
+#    return gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN, 2, 1, 1,
+#    params.alpha, params.q, params.epsilon_init,
+#    0, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211)[8](f)
 
 #@jit
 def make_grav_atom(
@@ -1089,9 +1176,34 @@ def master_call_shift(f, params: GravAtomShift):
     params.alpha, params.q, params.epsilon_init,
     R_211, ion_r_co_211, ion_E_co_211)
 
-    return ga_results[7], ga_results[6], ga_results[8]
+    return ga_results[7], ga_results[6], ga_results[8]#(f)
+#@jit
+#def _Phi_to_c_indef_g(f, params: GravAtom):#2pi intdf f dt/df between fc and f
+
+#    return Phi_interp_ga(get_m_1(params.M_chirp, params.q)/MSUN)(f)
+
+#    return gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN, 2, 1, 1,
+#    params.alpha, params.q, params.epsilon_init,
+#    0, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211)[7](f) #index 7 here gives Phi_interp
 
 
+#@jit
+#def _t_to_c_indef_g(f, params: GravAtom):# -int dfdt/df betweem fc and f
+
+#    return gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN, 2, 1, 1,
+#    params.alpha, params.q, params.epsilon_init,
+#    0, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211)[6](f)
+
+#@jit
+#def d2Phi_dt2_g(f, params: GravAtom):
+
+#    return Phi_dd_interp_ga(get_m_1(params.M_chirp, params.q)/MSUN)(f)
+
+#    return gatom_interp(get_m_1(params.M_chirp, params.q)/MSUN, 2, 1, 1,
+#    params.alpha, params.q, params.epsilon_init,
+#    0, R_211, ion_r_co_211, ion_E_co_211, ion_r_count_211, ion_E_count_211)[8](f)
+
+#@jit
 def make_grav_atom_shift(IG,
     m_1,
     m_2,
@@ -1137,9 +1249,11 @@ def make_surr_dd(
     return SurrogateDD(gamma_s, rho_6, M_chirp, m_2/m_1, Phi_c, tT_c, dL, f_c)
 
 
-### Combo - not working properly yet 
+### Combo
+# 
+# 
 
-
+#@jit
 def _Phi_to_c_indef_c(f, params: Combo):#2pi intdf f dt/df between fc and f
     v_count = 0
     dm_phase = 0
@@ -1168,6 +1282,7 @@ def d2Phi_dt2_c(f, params: Combo):
 
     return -2 * d2Phi_dt2_v(f, params) + d2Phi_dt2_d(f, params) + d2Phi_dt2_a(f, params) + master_call(f, params)[2](f)
 
+    #@jit
 def make_combo(
     m_1,
     m_2,
